@@ -45,6 +45,11 @@ const plugin: FastifyPluginAsyncJsonSchemaToTs = async (
         reply.statusCode = 400;
         throw new Error("Recieved wrong data");
       }
+      const user = await fastify.db.users.findOne({key: "id", equals: newProfile.userId});
+      if(!user) {
+        reply.statusCode = 400;
+        throw new Error("User does not exist");
+      }
       const sameUserProfile = await fastify.db.profiles.findOne({key: "userId", equals: newProfile.userId});
       if(sameUserProfile) {
         reply.statusCode = 400;
