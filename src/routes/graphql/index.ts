@@ -32,7 +32,7 @@ const plugin: FastifyPluginAsyncJsonSchemaToTs = async (
           id: ID
           avatar: String
           sex: String
-          birthday: String
+          birthday: Int
           country: String
           street: String
           city: String
@@ -63,10 +63,45 @@ const plugin: FastifyPluginAsyncJsonSchemaToTs = async (
           post(id: ID): Post
           memberType(id: ID): MemberType
         }
+
+        input UserInput {
+          firstName: String!
+          lastName: String!
+          email: String!
+        }
+
+        input PostInput {
+          title: String!
+          content: String!
+          userId: ID!
+        }
+
+        input ProfileInput {
+          avatar: String!
+          sex: String!
+          birthday: Int!
+          country: String!
+          street: String!
+          city: String!
+          userId: ID!
+          memberTypeId: String!
+        }
+
+        type Mutation {
+          createUser(input: UserInput): User
+          createPost(input: PostInput): Post
+          createProfile(input: ProfileInput): Profile
+          updateUser: User
+          updateProfile: Profile
+          updateMemberType: MemberType
+          updatePost: Post
+          subscribeTo: User
+          unsubscribeFrom: User
+        }
       `);
 
       const root = {
-        users: async (i: number | undefined) => {
+        users: async () => {
           const users = await this.db.users.findMany();
           return users.map(async user => {
             const profile = await this.db.profiles.findOne({key: "userId", equals: user.id});
@@ -109,15 +144,9 @@ const plugin: FastifyPluginAsyncJsonSchemaToTs = async (
         },
 
         user: async ({id}: {id: string}) => {
-          if(!isUUID(id)) {
-            reply.statusCode = 400;
-            throw new Error("Invalid ID");
-          }
+          if(!isUUID(id)) throw new Error("Invalid ID");
           const user = await this.db.users.findOne({key: "id", equals: id});
-          if (!user) {
-            reply.statusCode = 404;
-            throw new Error("User not found")
-          }
+          if (!user) throw new Error("User not found");
           const profile = await this.db.profiles.findOne({key: "userId", equals: user.id});
           const memberType = profile? await this.db.memberTypes.findOne({key: "id", equals: profile.memberTypeId}) : null;
           const userSubscribedTo =  await this.db.users.findMany({key: "subscribedToUserIds", inArray: user.id});
@@ -132,37 +161,41 @@ const plugin: FastifyPluginAsyncJsonSchemaToTs = async (
         },
 
         profile: async({id}: {id: string}) => {
-          if(!isUUID(id)) {
-            reply.statusCode = 400;
-            throw new Error("Invalid ID");
-          }
+          if(!isUUID(id)) throw new Error("Invalid ID");
           const profile = await this.db.profiles.findOne({key: "id", equals: id});
-          if (!profile) {
-            reply.statusCode = 404;
-            throw new Error("Profile not found")
-          }
+          if (!profile) throw new Error("Profile not found");
           return profile
         },
 
         post: async ({id}: {id: string}) => {
-          if(!isUUID(id)) {
-            reply.statusCode = 400;
-            throw new Error("Invalid ID");
-          }
+          if(!isUUID(id)) throw new Error("Invalid ID");
           const post = await this.db.posts.findOne({key: "id", equals: id})
-          if (!post) {
-            reply.statusCode = 404;
-            throw new Error("Post not found")
-          }
+          if (!post) throw new Error("Post not found");
           return post;
         },
 
         memberType: ({id}: {id: string}) => {
-          if(!["basic", "business"].includes(id)) {
-            reply.statusCode = 400;
-            throw new Error("Invalid ID");
-          }
+          if(!["basic", "business"].includes(id)) throw new Error("Invalid ID");
           return this.db.memberTypes.findOne({key: "id", equals: id})
+        },
+
+        createUser: <T extends {firstName: string, lastName: string, email: string}>({input}: {input: T}) => {
+          return this.db.users.create(input);
+        }, 
+
+        createProfile:  async <T extends {avatar: string, sex: string, birthday: number, country: string, city: string, street: string, userId: string, memberTypeId: string}>({input}: {input: T}) => {
+          if(!isUUID(input.userId)) throw new Error("Invalid User ID");
+          if(!["basic", "business"].includes(input.memberTypeId)) throw new Error("Invalid MemberType ID");
+          const user = await fastify.db.users.findOne({key: "id", equals: input.userId});
+          if(!user) throw new Error("User does not exist");
+          return this.db.profiles.create(input);
+        },
+
+        createPost: async <T extends {title: string, content: string, userId: string}>({input}: {input: T}) => {
+          if(!isUUID(input.userId)) throw new Error("Invalid User ID");
+          const user = await fastify.db.users.findOne({key: "id", equals: input.userId});
+          if(!user) throw new Error("User does not exist");
+          return this.db.posts.create(input);
         }
     }
 
