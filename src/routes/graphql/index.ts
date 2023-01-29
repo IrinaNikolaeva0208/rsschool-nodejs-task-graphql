@@ -76,6 +76,11 @@ const plugin: FastifyPluginAsyncJsonSchemaToTs = async (
           userId: ID!
         }
 
+        input MemberTypeInput {
+          discount: Int
+          monthPostsLimit: Int
+        }
+
         input ProfileInput {
           avatar: String!
           sex: String!
@@ -91,12 +96,12 @@ const plugin: FastifyPluginAsyncJsonSchemaToTs = async (
           createUser(input: UserInput): User
           createPost(input: PostInput): Post
           createProfile(input: ProfileInput): Profile
-          updateUser: User
-          updateProfile: Profile
-          updateMemberType: MemberType
-          updatePost: Post
-          subscribeTo: User
-          unsubscribeFrom: User
+          updateUser(id:ID, input: UserInput): User
+          updateProfile(id:ID, input: ProfileInput): Profile
+          updateMemberType(id:ID, input: MemberTypeInput): MemberType
+          updatePost(id:ID, input: PostInput): Post
+          subscribeTo(userId:ID, subscribeToId: ID): User
+          unsubscribeFrom(userId:ID, unsubscribeFromId:ID): User
         }
       `);
 
@@ -146,7 +151,7 @@ const plugin: FastifyPluginAsyncJsonSchemaToTs = async (
         user: async ({id}: {id: string}) => {
           if(!isUUID(id)) throw new Error("Invalid ID");
           const user = await this.db.users.findOne({key: "id", equals: id});
-          if (!user) throw new Error("User not found");
+          if (!user) throw new Error("User does not exist");
           const profile = await this.db.profiles.findOne({key: "userId", equals: user.id});
           const memberType = profile? await this.db.memberTypes.findOne({key: "id", equals: profile.memberTypeId}) : null;
           const userSubscribedTo =  await this.db.users.findMany({key: "subscribedToUserIds", inArray: user.id});
@@ -163,14 +168,14 @@ const plugin: FastifyPluginAsyncJsonSchemaToTs = async (
         profile: async({id}: {id: string}) => {
           if(!isUUID(id)) throw new Error("Invalid ID");
           const profile = await this.db.profiles.findOne({key: "id", equals: id});
-          if (!profile) throw new Error("Profile not found");
+          if (!profile) throw new Error("Profile does not exist");
           return profile
         },
 
         post: async ({id}: {id: string}) => {
           if(!isUUID(id)) throw new Error("Invalid ID");
           const post = await this.db.posts.findOne({key: "id", equals: id})
-          if (!post) throw new Error("Post not found");
+          if (!post) throw new Error("Post does not exist");
           return post;
         },
 
@@ -188,6 +193,8 @@ const plugin: FastifyPluginAsyncJsonSchemaToTs = async (
           if(!["basic", "business"].includes(input.memberTypeId)) throw new Error("Invalid MemberType ID");
           const user = await fastify.db.users.findOne({key: "id", equals: input.userId});
           if(!user) throw new Error("User does not exist");
+          const profile = await this.db.profiles.findOne({key: "userId", equals: input.userId});
+          if(profile) throw new Error("Profile already exists");
           return this.db.profiles.create(input);
         },
 
@@ -196,7 +203,54 @@ const plugin: FastifyPluginAsyncJsonSchemaToTs = async (
           const user = await fastify.db.users.findOne({key: "id", equals: input.userId});
           if(!user) throw new Error("User does not exist");
           return this.db.posts.create(input);
-        }
+        },
+
+        updatePost: async <T extends {title: string, content: string, userId: string}>({input, id}: {input: T, id: string}) => {
+          if(!isUUID(id)) throw new Error("Invalid ID");
+          const post = await this.db.posts.findOne({key: "id", equals: id})
+          if (!post) throw new Error("Post does not exist");
+          return this.db.posts.change(id, input);
+        },
+
+        updateProfile: async <T extends {avatar: string, sex: string, birthday: number, country: string, city: string, street: string, userId: string, memberTypeId: string}>({input, id}: {input: T, id: string}) => {
+          if(!isUUID(id)) throw new Error("Invalid ID");
+          const profile = await this.db.profiles.findOne({key: "id", equals: id})
+          if (!profile) throw new Error("Profile does not exist");
+          return this.db.profiles.change(id, input);
+        },
+
+        updateMemberType: async <T extends {discount: number, monthPostsLimit: number}>({id, input}: {id: string, input: T}) => {
+          if(!["basic", "business"].includes(id)) throw new Error("Invalid ID");
+          return this.db.memberTypes.change(id, input);
+        },
+
+        updateUser: async <T extends {firstName: string, lastName: string, email: string}>({id, input}: {id: string, input: T}) => {
+          if(!isUUID(id)) throw new Error("Invalid ID");
+          const user = await this.db.users.findOne({key: "id", equals: id})
+          if (!user) throw new Error("User does not exist");
+          return this.db.users.change(id, input);
+        },
+
+        subscribeTo: async ({userId, subscribeToId}: {userId: string, subscribeToId: string}) => {
+          if(!isUUID(userId) || !isUUID(subscribeToId)) throw new Error("Invalid ID");
+          const follower = await this.db.users.findOne({key: "id", equals: userId});
+          if(!follower) throw new Error(`User with ID:${userId} does not exist`);
+          const following = await this.db.users.findOne({key: "id", equals: subscribeToId});
+          if(!following) throw new Error(`User with ID:${subscribeToId} does not exist`);
+          if(following.subscribedToUserIds.includes(userId)) throw new Error("Already subscribed");
+          following.subscribedToUserIds.push(userId);
+          return this.db.users.change(subscribeToId, following);
+        },
+
+        unsubscribeFrom: async ({userId, unsubscribeFromId}: {userId: string, unsubscribeFromId: string}) => {
+          if(!isUUID(userId) || !isUUID(unsubscribeFromId)) throw new Error("Invalid ID");
+          const follower = await this.db.users.findOne({key: "id", equals: userId});
+          if(!follower) throw new Error(`User with ID:${userId} does not exist`);
+          const following = await this.db.users.findOne({key: "id", equals: unsubscribeFromId});
+          if(!following) throw new Error(`User with ID:${unsubscribeFromId} does not exist`);
+          const followerIndex = following.subscribedToUserIds.indexOf(userId);
+          following.subscribedToUserIds.splice(followerIndex, 1);
+          return this.db.users.change(unsubscribeFromId, following);},
     }
 
       return await graphql({
