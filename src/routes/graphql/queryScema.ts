@@ -47,7 +47,7 @@ const querySchema = buildSchema(`
           user(id: ID): User
           profile(id: ID): Profile
           post(id: ID): Post
-          memberType(id: ID): MemberType
+          memberType(id: String): MemberType
         }
 
         input UserInput {
